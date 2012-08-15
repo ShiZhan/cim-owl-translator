@@ -1,7 +1,7 @@
 #-------------------------------------------------------------------------------
 # Name:        CIM translator
 # Purpose:     translate dmtf cim and snia smi-s model to rdf/owl
-# Dependency:  rdflib version: 3.1.0 https://github.com/RDFLib/rdflib
+# Dependency:  rdflib version: 3.2.1 https://github.com/RDFLib/rdflib
 #
 # Author:      ShiZhan
 #
@@ -32,6 +32,17 @@ from rdflib.namespace import Namespace, RDF, RDFS, OWL, XSD
 
 import time
 
+from lxml import etree
+
+# input CIM/XML model from cim_smis_all.xml compiled from:
+# http://www.dmtf.org/standards/cim
+try:
+    doc = etree.parse('cim_smis_all.xml')
+except etree.XMLSyntaxError, error_loading:
+    print "error while loading."
+    pass
+
+# output RDF/OWL model
 store = Graph()
 
 # Create a namespace object for the ontology namespace.
@@ -56,9 +67,6 @@ store.bind("dc",    "http://purl.org/dc/elements/1.1/")
 store.bind("terms", "http://purl.org/dc/terms/")
 store.bind("cim",   CIM)
 
-# Create an identifier to use as the subject for ontology.
-#ontology = BNode()
-
 # declare metadata
 store.add((BASE, RDF.type, OWL["Ontology"]))
 store.add((BASE, RDFS["comment"], Literal("Computer system management ontology"
@@ -82,34 +90,77 @@ store.add((BASE, TERMS["license"], Literal("Copyright 2011 Shi.Zhan."
 # declare data types: <rdfs:Datatype rdf:about="&xsd;anyType"/>
 # how to use &xsd directly? as mentioned in http://www.w3.org/TR/rdf-primer/
 # solution1: use full URI
-store.add((XSD["anyType"], RDF.type, RDFS["Datatype"]))
+store.add((XSD.anyType, RDF.type, RDFS.Datatype))
 
-# declare classes
+# declare base classes
 
 #<Class rdf:about="http://www.storagekb.org/ontologies/2011/cim_smis_all.owl#CIM_Meta_Class"/>
-store.add((CIM["CIM_Meta_Class"], RDF.type, OWL["Class"]))
-store.add((CIM["CIM_Association"], RDF.type, OWL["Class"]))
+store.add((CIM["CIM_Meta_Class"], RDF.type, OWL.Class))
+store.add((CIM["CIM_Association"], RDF.type, OWL.Class))
 store.add((CIM["CIM_Association"], RDFS.subClassOf, CIM["CIM_Meta_Class"]))
 
-# class hierachy
+# import class hierarchy
+try:
+    classes = doc.findall("//VALUE.OBJECT/CLASS")
 
-store.add((CIM["CIM_ManagedElement"], RDF.type, OWL["Class"]))
-store.add((CIM["CIM_ManagedElement"], RDFS.subClassOf, CIM["CIM_Meta_Class"]))
-tempNode = BNode()
-store.add((tempNode, RDF.type, OWL.Restriction))
-store.add((CIM["CIM_ManagedElement"], RDFS.subClassOf, tempNode))
-store.add((tempNode, OWL.onProperty, CIM["has_InstanceID"]))
-store.add((tempNode, OWL.someValuesFrom, XSD["string"]))
+    for class_i in classes:
+        assert class_i.attrib['NAME']!=None, 'IN CIM, Class aways has a Name.'
 
+        # declare Class here
+        store.add((CIM[(class_i.attrib['NAME'])], RDF.type, OWL.Class))
+        # and then class hierarchy
+        if class_i.find(".[@SUPERCLASS]") is not None:
+            # this one has a Super Class
+##            print class_i.attrib['NAME'], " is a ", class_i.attrib['SUPERCLASS']
+            store.add((CIM[(class_i.attrib['NAME'])], RDFS.subClassOf, CIM[(class_i.attrib['SUPERCLASS'])]))
+        else:
+            # this one is on the top
+            if class_i.find("./QUALIFIER[@NAME='ASSOCIATION']") is not None:
+                # top level Association
+##                print class_i.attrib['NAME'], " is an *Association"
+                store.add((CIM[(class_i.attrib['NAME'])], RDFS.subClassOf, CIM["CIM_Association"]))
+            else:
+                # top level Meta Class
+##                print class_i.attrib['NAME'], " is a *Meta Class"
+                store.add((CIM[(class_i.attrib['NAME'])], RDFS.subClassOf, CIM["CIM_Meta_Class"]))
 
-# declare properties
-store.add((CIM["has_InstanceID"], RDF.type, OWL["DatatypeProperty"]))
-store.add((CIM["has_InstanceID"], RDFS.domain, CIM["CIM_Meta_Class"]))
+        # assign restrictions (properties) to class
+##        tempNode = BNode()
+##        store.add((tempNode, RDF.type, OWL.Restriction))
+##        store.add((tempNode, OWL.onProperty, CIM["has_InstanceID"]))
+##        store.add((tempNode, OWL.someValuesFrom, XSD.string))
+##        store.add((CIM["CIM_ManagedElement"], RDFS.subClassOf, tempNode))
+
+    # pick out distictive properties
+    # when a named property is used in different classes, they are treated as
+    # different in DMTF CIM, since they work in different domains.
+    # However, properties should be unique in RDF/OWL, so same-named properties
+    # can be either 'renamed in different classes' or simply 'reused'
+    references = doc.xpath('//VALUE.OBJECT/CLASS/PROPERTY.REFERENCE/@NAME[.]')
+    object_properties = set(references)
+    for object_property_i in object_properties:
+        # object property declaration
+##        print object_property_i
+        store.add((CIM[object_property_i], RDF.type, OWL.ObjectProperty))
+        store.add((CIM[object_property_i], RDFS.domain, CIM["CIM_Meta_Class"]))
+
+    properties = doc.xpath('//VALUE.OBJECT/CLASS/PROPERTY/@NAME[.]')
+    property_arrays = doc.xpath('//VALUE.OBJECT/CLASS/PROPERTY.ARRAY/@NAME[.]')
+    data_properties = set(properties + property_arrays)
+    for data_property_i in data_properties:
+        # data property declaration
+##        print data_property_i
+        store.add((CIM[data_property_i], RDF.type, OWL.DatatypeProperty))
+        store.add((CIM[data_property_i], RDFS.domain, CIM["CIM_Meta_Class"]))
+
+except etree.XMLSyntaxError, error_parsing:
+    print "error while parsing."
+    pass
 
 # Iterate over triples in store and print them out.
-print "--- printing raw triples ---"
-for s, p, o in store:
-    print ((s, p, o))
+##print "--- printing raw triples ---"
+##for s, p, o in store:
+##    print ((s, p, o))
 
 # Serialize the store as RDF/XML to the file foaf.rdf.
 #store.serialize("cim_smis.rdf", format="pretty-xml", max_depth=3)
@@ -121,11 +172,12 @@ print "RDF Serializations:"
 print
 
 # Serialize as XML
-print "--- start: rdf-xml ---"
-print store.serialize(format="pretty-xml")
-print "--- end: rdf-xml ---\n"
+##print "--- start: rdf-xml ---"
+##print store.serialize(format="pretty-xml")
+##print "--- end: rdf-xml ---\n"
+store.serialize("cim_smis.owl", format="pretty-xml")
 
 # Serialize as NTriples
-print "--- start: ntriples ---"
-print store.serialize(format="nt")
-print "--- end: ntriples ---\n"
+##print "--- start: ntriples ---"
+##print store.serialize(format="nt")
+##print "--- end: ntriples ---\n"
