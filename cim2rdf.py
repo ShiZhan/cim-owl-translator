@@ -1,7 +1,7 @@
 #-------------------------------------------------------------------------------
 # Name:        CIM translator
-# Purpose:     translate dmtf cim and snia smi-s model to rdf/owl
-# Dependency:  rdflib version: 3.2.1 https://github.com/RDFLib/rdflib
+# Purpose:     translate dmtf cim model to rdf/owl
+# Dependency:  rdflib version: 3.3.0-dev https://github.com/RDFLib/rdflib
 #
 # Author:      ShiZhan
 #
@@ -34,10 +34,10 @@ import time
 
 from lxml import etree
 
-# input CIM/XML model from cim_smis_all.xml compiled from:
+# input CIM/XML model from all_classes.xml published on:
 # http://www.dmtf.org/standards/cim
 try:
-    doc = etree.parse('cim_smis_all.xml')
+    doc = etree.parse('all_classes.xml')
 except etree.XMLSyntaxError, error_loading:
     print "error while loading."
     pass
@@ -54,7 +54,7 @@ store = Graph()
 DC      = Namespace("http://purl.org/dc/elements/1.1/")
 TERMS   = Namespace("http://purl.org/dc/terms/")
 # Newly created ontology
-baseURI = "http://www.storagekb.org/ontologies/2011/cim_smis.owl"
+baseURI = "http://www.storagekb.org/ontologies/2012/dmtf_cim.owl"
 BASE    = URIRef(baseURI)
 CIM     = Namespace(baseURI+'#')
 
@@ -107,22 +107,29 @@ try:
         assert class_i.attrib['NAME']!=None, 'IN CIM, Class aways has a Name.'
 
         # declare Class here
-        store.add((CIM[(class_i.attrib['NAME'])], RDF.type, OWL.Class))
+        class_i_name = class_i.attrib['NAME']
+        store.add((CIM[class_i_name], RDF.type, OWL.Class))
         # and then class hierarchy
         if class_i.find(".[@SUPERCLASS]") is not None:
             # this one has a Super Class
 ##            print class_i.attrib['NAME'], " is a ", class_i.attrib['SUPERCLASS']
-            store.add((CIM[(class_i.attrib['NAME'])], RDFS.subClassOf, CIM[(class_i.attrib['SUPERCLASS'])]))
+            store.add((CIM[class_i_name], RDFS.subClassOf, CIM[(class_i.attrib['SUPERCLASS'])]))
         else:
             # this one is on the top
-            if class_i.find("./QUALIFIER[@NAME='ASSOCIATION']") is not None:
+            if class_i.find("./QUALIFIER[@NAME='Association']") is not None:
                 # top level Association
 ##                print class_i.attrib['NAME'], " is an *Association"
-                store.add((CIM[(class_i.attrib['NAME'])], RDFS.subClassOf, CIM["CIM_Association"]))
+                store.add((CIM[class_i_name], RDFS.subClassOf, CIM["CIM_Association"]))
             else:
                 # top level Meta Class
 ##                print class_i.attrib['NAME'], " is a *Meta Class"
-                store.add((CIM[(class_i.attrib['NAME'])], RDFS.subClassOf, CIM["CIM_Meta_Class"]))
+                store.add((CIM[class_i_name], RDFS.subClassOf, CIM["CIM_Meta_Class"]))
+
+        # covert ./QUALIFIER[@NAME='Description'] to class annotation
+        description_i = class_i.find("./QUALIFIER[@NAME='Description']/VALUE")
+        if description_i is not None:
+            # add rdfs:comment triple
+            store.add((CIM[class_i_name], RDFS.comment, Literal(description_i.text)))
 
         # assign restrictions (properties) to class
 ##        tempNode = BNode()
@@ -144,14 +151,14 @@ try:
         store.add((CIM[object_property_i], RDF.type, OWL.ObjectProperty))
         store.add((CIM[object_property_i], RDFS.domain, CIM["CIM_Meta_Class"]))
 
-    properties = doc.xpath('//VALUE.OBJECT/CLASS/PROPERTY/@NAME[.]')
-    property_arrays = doc.xpath('//VALUE.OBJECT/CLASS/PROPERTY.ARRAY/@NAME[.]')
-    data_properties = set(properties + property_arrays)
-    for data_property_i in data_properties:
+    properties = doc.xpath( '//VALUE.OBJECT/CLASS/PROPERTY/@NAME[.]|'
+                            '//VALUE.OBJECT/CLASS/PROPERTY.ARRAY/@NAME[.]')
+    datatype_properties = set(properties)
+    for datatype_property_i in datatype_properties:
         # data property declaration
-##        print data_property_i
-        store.add((CIM[data_property_i], RDF.type, OWL.DatatypeProperty))
-        store.add((CIM[data_property_i], RDFS.domain, CIM["CIM_Meta_Class"]))
+##        print datatype_property_i
+        store.add((CIM[datatype_property_i], RDF.type, OWL.DatatypeProperty))
+        store.add((CIM[datatype_property_i], RDFS.domain, CIM["CIM_Meta_Class"]))
 
 except etree.XMLSyntaxError, error_parsing:
     print "error while parsing."
@@ -162,20 +169,19 @@ except etree.XMLSyntaxError, error_parsing:
 ##for s, p, o in store:
 ##    print ((s, p, o))
 
-# Serialize the store as RDF/XML to the file foaf.rdf.
-#store.serialize("cim_smis.rdf", format="pretty-xml", max_depth=3)
-
 # Let's show off the serializers
 
 print
 print "RDF Serializations:"
 print
 
+# Serialize the store as RDF/XML to file.
+store.serialize("dmtf_cim.owl", format="pretty-xml")
+
 # Serialize as XML
 ##print "--- start: rdf-xml ---"
 ##print store.serialize(format="pretty-xml")
 ##print "--- end: rdf-xml ---\n"
-store.serialize("cim_smis.owl", format="pretty-xml")
 
 # Serialize as NTriples
 ##print "--- start: ntriples ---"
