@@ -34,6 +34,8 @@ import time
 
 from lxml import etree
 
+print "Loading CIM XML ..."
+
 # input CIM/XML model from all_classes.xml published on:
 # http://www.dmtf.org/standards/cim
 try:
@@ -41,6 +43,8 @@ try:
 except etree.XMLSyntaxError, error_loading:
     print "error while loading."
     pass
+
+print "Initializing RDF framework ..."
 
 # output RDF/OWL model
 store = Graph()
@@ -91,6 +95,16 @@ store.add((BASE, TERMS["license"], Literal("Copyright 2011 Shi.Zhan."
 # how to use &xsd directly? as mentioned in http://www.w3.org/TR/rdf-primer/
 # solution1: use full URI
 store.add((XSD.anyType, RDF.type, RDFS.Datatype))
+# data type mapping
+data_type_map =  ({
+    # CIM       XSD
+    'string':   'string',
+    'boolean':  'boolean',
+    'datetime': 'dateTime',
+    'uint16':   'unsignedShort',
+    'uint32':   'unsignedLong',
+    'uint64':   'unsignedInt'
+    })
 
 # declare base classes
 
@@ -98,6 +112,8 @@ store.add((XSD.anyType, RDF.type, RDFS.Datatype))
 store.add((CIM["CIM_Meta_Class"], RDF.type, OWL.Class))
 store.add((CIM["CIM_Association"], RDF.type, OWL.Class))
 store.add((CIM["CIM_Association"], RDFS.subClassOf, CIM["CIM_Meta_Class"]))
+
+print "Parsing and translating ..."
 
 # import class hierarchy
 try:
@@ -107,36 +123,55 @@ try:
         assert class_i.attrib['NAME']!=None, 'IN CIM, Class aways has a Name.'
 
         # declare Class here
-        class_i_name = class_i.attrib['NAME']
-        store.add((CIM[class_i_name], RDF.type, OWL.Class))
+        class_i_uri = CIM[class_i.attrib['NAME']]
+        store.add((class_i_uri, RDF.type, OWL.Class))
         # and then class hierarchy
         if class_i.find(".[@SUPERCLASS]") is not None:
             # this one has a Super Class
 ##            print class_i.attrib['NAME'], " is a ", class_i.attrib['SUPERCLASS']
-            store.add((CIM[class_i_name], RDFS.subClassOf, CIM[(class_i.attrib['SUPERCLASS'])]))
+            store.add((class_i_uri, RDFS.subClassOf, CIM[(class_i.attrib['SUPERCLASS'])]))
         else:
             # this one is on the top
             if class_i.find("./QUALIFIER[@NAME='Association']") is not None:
                 # top level Association
 ##                print class_i.attrib['NAME'], " is an *Association"
-                store.add((CIM[class_i_name], RDFS.subClassOf, CIM["CIM_Association"]))
+                store.add((class_i_uri, RDFS.subClassOf, CIM["CIM_Association"]))
             else:
                 # top level Meta Class
 ##                print class_i.attrib['NAME'], " is a *Meta Class"
-                store.add((CIM[class_i_name], RDFS.subClassOf, CIM["CIM_Meta_Class"]))
+                store.add((class_i_uri, RDFS.subClassOf, CIM["CIM_Meta_Class"]))
 
         # covert ./QUALIFIER[@NAME='Description'] to class annotation
         description_i = class_i.find("./QUALIFIER[@NAME='Description']/VALUE")
         if description_i is not None:
             # add rdfs:comment triple
-            store.add((CIM[class_i_name], RDFS.comment, Literal(description_i.text)))
+            store.add((class_i_uri, RDFS.comment, Literal(description_i.text)))
 
         # assign restrictions (properties) to class
-##        tempNode = BNode()
-##        store.add((tempNode, RDF.type, OWL.Restriction))
-##        store.add((tempNode, OWL.onProperty, CIM["has_InstanceID"]))
-##        store.add((tempNode, OWL.someValuesFrom, XSD.string))
-##        store.add((CIM["CIM_ManagedElement"], RDFS.subClassOf, tempNode))
+        # object properties
+        references_i = class_i.xpath("./PROPERTY.REFERENCE")
+        if references_i is not None:
+            for reference_i in references_i:
+                reference_i_name = reference_i.attrib['NAME']
+                reference_i_obj  = reference_i.attrib['REFERENCECLASS']
+                # ignore the min/max qualifiers to reduce model complexity
+                restriction_node = BNode()
+                store.add((restriction_node, RDF.type, OWL.Restriction))
+                store.add((restriction_node, OWL.onProperty, CIM[reference_i_name]))
+                store.add((restriction_node, OWL.allValuesFrom, CIM[reference_i_obj]))
+                store.add((class_i_uri, RDFS.subClassOf, restriction_node))
+        # data properties
+        properties_i = class_i.xpath("./PROPERTY|./PROPERTY.ARRAY")
+        if properties_i is not None:
+            for property_i in properties_i:
+                property_i_name = property_i.attrib['NAME']
+                property_i_type = data_type_map.get(property_i.attrib['TYPE'], 'anyType')
+                # ignore various qualifiers to reduce model complexity
+                restriction_node = BNode()
+                store.add((restriction_node, RDF.type, OWL.Restriction))
+                store.add((restriction_node, OWL.onProperty, CIM[property_i_name]))
+                store.add((restriction_node, OWL.allValuesFrom, XSD[property_i_type]))
+                store.add((class_i_uri, RDFS.subClassOf, restriction_node))
 
     # pick out distictive properties
     # when a named property is used in different classes, they are treated as
@@ -149,7 +184,8 @@ try:
         # object property declaration
 ##        print object_property_i
         store.add((CIM[object_property_i], RDF.type, OWL.ObjectProperty))
-        store.add((CIM[object_property_i], RDFS.domain, CIM["CIM_Meta_Class"]))
+        store.add((CIM[object_property_i], RDFS.range,  CIM["CIM_Meta_Class"]))
+        store.add((CIM[object_property_i], RDFS.domain, CIM["CIM_Association"]))
 
     properties = doc.xpath( '//VALUE.OBJECT/CLASS/PROPERTY/@NAME[.]|'
                             '//VALUE.OBJECT/CLASS/PROPERTY.ARRAY/@NAME[.]')
@@ -164,26 +200,13 @@ except etree.XMLSyntaxError, error_parsing:
     print "error while parsing."
     pass
 
-# Iterate over triples in store and print them out.
-##print "--- printing raw triples ---"
-##for s, p, o in store:
-##    print ((s, p, o))
-
-# Let's show off the serializers
-
-print
-print "RDF Serializations:"
-print
+print "RDF Serialization ..."
 
 # Serialize the store as RDF/XML to file.
 store.serialize("dmtf_cim.owl", format="pretty-xml")
 
-# Serialize as XML
-##print "--- start: rdf-xml ---"
-##print store.serialize(format="pretty-xml")
-##print "--- end: rdf-xml ---\n"
-
-# Serialize as NTriples
-##print "--- start: ntriples ---"
-##print store.serialize(format="nt")
-##print "--- end: ntriples ---\n"
+print "Produced %d Triples." % len(store)
+print "----------"
+print "%8d CIM Classes converted to owl:Class." % len(classes)
+print "%8d CIM References converted to owl:ObjectProperty." % len(object_properties)
+print "%8d CIM Properties converted to owl:DatatypeProperty." % len(datatype_properties)
