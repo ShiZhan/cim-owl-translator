@@ -39,7 +39,7 @@ print "Loading CIM XML ..."
 # input CIM/XML model from all_classes.xml published on:
 # http://www.dmtf.org/standards/cim
 try:
-    doc = etree.parse('all_classes.xml')
+    cim_souce = etree.parse('all_classes.xml')
 except etree.XMLSyntaxError, error_loading:
     print "error while loading."
     pass
@@ -117,7 +117,7 @@ print "Parsing and translating ..."
 
 # import class hierarchy
 try:
-    classes = doc.findall("//VALUE.OBJECT/CLASS")
+    classes = cim_souce.findall("//VALUE.OBJECT/CLASS")
 
     for class_i in classes:
         assert class_i.attrib['NAME']!=None, 'IN CIM, Class aways has a Name.'
@@ -178,7 +178,7 @@ try:
     # different in DMTF CIM, since they work in different domains.
     # However, properties should be unique in RDF/OWL, so same-named properties
     # can be either 'renamed in different classes' or simply 'reused'
-    references = doc.xpath('//VALUE.OBJECT/CLASS/PROPERTY.REFERENCE/@NAME[.]')
+    references = cim_souce.xpath('//VALUE.OBJECT/CLASS/PROPERTY.REFERENCE/@NAME[.]')
     object_properties = set(references)
     for object_property_i in object_properties:
         # object property declaration
@@ -187,7 +187,7 @@ try:
         store.add((CIM[object_property_i], RDFS.range,  CIM["CIM_Meta_Class"]))
         store.add((CIM[object_property_i], RDFS.domain, CIM["CIM_Association"]))
 
-    properties = doc.xpath( '//VALUE.OBJECT/CLASS/PROPERTY/@NAME[.]|'
+    properties = cim_souce.xpath( '//VALUE.OBJECT/CLASS/PROPERTY/@NAME[.]|'
                             '//VALUE.OBJECT/CLASS/PROPERTY.ARRAY/@NAME[.]')
     datatype_properties = set(properties)
     for datatype_property_i in datatype_properties:
