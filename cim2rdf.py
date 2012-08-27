@@ -104,7 +104,7 @@ def main():
 
     # declare base classes
 
-    #<Class rdf:about="http://www.storagekb.org/ontologies/2011/cim_smis_all.owl#CIM_Meta_Class"/>
+    # as in CIM meta model, Association is a Class with 2+ references
     store.add((CIM["CIM_Meta_Class"], RDF.type, OWL.Class))
     store.add((CIM["CIM_Association"], RDF.type, OWL.Class))
     store.add((CIM["CIM_Association"], RDFS.subClassOf, CIM["CIM_Meta_Class"]))
