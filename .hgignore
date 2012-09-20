@@ -1,0 +1,6 @@
+syntax: glob
+#ignore test XML/OWL
+*.xml
+*.owl
+#ignore test code
+__test*
