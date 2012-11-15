@@ -1,6 +1,5 @@
 syntax: glob
+*.pyc
 #ignore test XML/OWL
 *.xml
 *.owl
-#ignore test code
-__test*
