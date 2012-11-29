@@ -24,18 +24,23 @@ from rdflib.graph import Graph
 from rdflib.term import URIRef, Literal, BNode
 from rdflib.namespace import Namespace, RDF, RDFS, OWL, XSD
 
+import sys
 import time
 
 from lxml import etree
 
 def main():
 
+    if len(sys.argv)<2:
+        print "cim2rdf [DMTF XML model]"
+        exit(1)
+
     print "Loading CIM XML ..."
 
     # input CIM/XML model from all_classes.xml published on:
     # http://www.dmtf.org/standards/cim
     try:
-        cim_souce = etree.parse('all_classes.xml')
+        cim_souce = etree.parse(sys.argv[1])
     except etree.XMLSyntaxError, error_loading:
         print "error while loading."
         pass
