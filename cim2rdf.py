@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+#
 #-------------------------------------------------------------------------------
 # Name:        CIM translator
 # Purpose:     translate dmtf cim model to rdf/owl
@@ -9,8 +11,6 @@
 # Copyright:   (c) ShiZhan 2012
 # Licence:     Apache License, Version 2.0
 #-------------------------------------------------------------------------------
-#!/usr/bin/env python
-
 import logging
 
 # Configure how we want rdflib logger to log messages
@@ -30,7 +30,7 @@ import time
 from lxml import etree
 
 def main():
-
+    """cim2rdf program"""
     if len(sys.argv)<2:
         print "cim2rdf [DMTF XML model]"
         exit(1)
@@ -42,8 +42,8 @@ def main():
     try:
         cim_souce = etree.parse(sys.argv[1])
     except etree.XMLSyntaxError, error_loading:
-        print "error while loading."
-        pass
+        print "error while loading ", error_loading
+        exit(1)
 
     print "Initializing RDF framework ..."
 
@@ -121,7 +121,7 @@ def main():
         classes = cim_souce.findall("//VALUE.OBJECT/CLASS")
 
         for class_i in classes:
-            assert class_i.attrib['NAME']!=None, 'IN CIM, Class aways has a Name.'
+            assert class_i.attrib['NAME'] != None, 'IN CIM, Class aways has a Name.'
 
             # declare Class here
             class_i_uri = CIM[class_i.attrib['NAME']]
@@ -198,8 +198,8 @@ def main():
             store.add((CIM[datatype_property_i], RDFS.domain, CIM["CIM_Meta_Class"]))
 
     except etree.XMLSyntaxError, error_parsing:
-        print "error while parsing."
-        pass
+        print "error while parsing ", error_parsing
+        exit(1)
 
     print "RDF Serialization ..."
 
